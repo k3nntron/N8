@@ -1,0 +1,16 @@
+{
+  "name": "N8 - Social Network",
+  "short_name": "N8",
+  "description": "A real-time social network for communities",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#1a1b1e",
+  "theme_color": "#5865F2",
+  "icons": [
+    {
+      "src": "/logo.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
