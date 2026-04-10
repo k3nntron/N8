@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" href="/logo.png" type="image/png" />
+    <title>N8 | Your Place to Talk, Hang Out & Have Fun</title>
+    <meta name="description" content="N8 is great for playing games and chilling with friends, or even building a worldwide community." />
+    <meta property="og:title" content="N8 - Your Place to Talk, Hang Out & Have Fun" />
+    <meta property="og:description" content="Discord clone - group chat that all fun and games" />
+  </head>
+  <body style="background-color: #1a1b1e; margin: 0;">
+    <div id="root"></div>
+    <script>
+      (function () {
+        if (window.location.hash) return;
+        var path = window.location.pathname;
+        if (path !== "/" && path !== "/index.html") {
+          var newUrl = "/#" + path + window.location.search;
+          window.location.replace(newUrl);
+        }
+      })();
+    </script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
