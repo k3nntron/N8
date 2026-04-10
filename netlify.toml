@@ -1,0 +1,29 @@
+{
+  "github": {
+    "enabled": true
+  },
+  "install": {
+    "force": false,
+    "nodeVersion": "18"
+  },
+  "build": {
+    "command": "npm run build",
+    "outputDirectory": "dist",
+    "environment": {
+      "VITE_SUPABASE_URL": "@supabase-url",
+      "VITE_SUPABASE_PUBLISHABLE_KEY": "@supabase-key",
+      "VITE_SUPABASE_PROJECT_ID": "@supabase-project-id"
+    }
+  },
+  "routes": [
+    {
+      "handle": "filesystem"
+    },
+    {
+      "src": "/.*",
+      "dest": "/index.html"
+    }
+  ],
+  "regions": ["iad1"],
+  "autoJobCancel": true
+}
