@@ -1,0 +1,250 @@
+-- Profiles table
+create table public.profiles (
+  id uuid primary key references auth.users(id) on delete cascade,
+  username text unique not null,
+  display_name text,
+  avatar_url text,
+  status text default 'online' check (status in ('online', 'idle', 'dnd', 'offline')),
+  created_at timestamptz default now()
+);
+
+alter table public.profiles enable row level security;
+
+create policy "Anyone can view profiles"
+  on public.profiles for select
+  to authenticated
+  using (true);
+
+create policy "Users can update own profile"
+  on public.profiles for update
+  to authenticated
+  using (id = auth.uid());
+
+create policy "Users can insert own profile"
+  on public.profiles for insert
+  to authenticated
+  with check (id = auth.uid());
+
+-- Servers table
+create table public.servers (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  icon_url text,
+  template text default 'own',
+  invite_code text unique default substring(gen_random_uuid()::text, 1, 8),
+  owner_id uuid references auth.users(id) on delete cascade not null,
+  created_at timestamptz default now()
+);
+
+alter table public.servers enable row level security;
+
+-- Server members table (created before server policies that reference it)
+create table public.server_members (
+  id uuid primary key default gen_random_uuid(),
+  server_id uuid references public.servers(id) on delete cascade not null,
+  user_id uuid references auth.users(id) on delete cascade not null,
+  role text default 'member' check (role in ('owner', 'admin', 'member')),
+  joined_at timestamptz default now(),
+  unique(server_id, user_id)
+);
+
+alter table public.server_members enable row level security;
+
+-- Server policies
+create policy "Members can view servers"
+  on public.servers for select
+  to authenticated
+  using (
+    exists (
+      select 1 from public.server_members
+      where server_members.server_id = servers.id
+      and server_members.user_id = auth.uid()
+    )
+    or owner_id = auth.uid()
+  );
+
+create policy "Authenticated users can create servers"
+  on public.servers for insert
+  to authenticated
+  with check (owner_id = auth.uid());
+
+create policy "Owners can update servers"
+  on public.servers for update
+  to authenticated
+  using (owner_id = auth.uid());
+
+create policy "Owners can delete servers"
+  on public.servers for delete
+  to authenticated
+  using (owner_id = auth.uid());
+
+-- Server members policies
+create policy "Members can view server members"
+  on public.server_members for select
+  to authenticated
+  using (
+    exists (
+      select 1 from public.server_members sm
+      where sm.server_id = server_members.server_id
+      and sm.user_id = auth.uid()
+    )
+  );
+
+create policy "Authenticated users can join servers"
+  on public.server_members for insert
+  to authenticated
+  with check (user_id = auth.uid());
+
+create policy "Users can leave servers"
+  on public.server_members for delete
+  to authenticated
+  using (user_id = auth.uid());
+
+-- Channels table
+create table public.channels (
+  id uuid primary key default gen_random_uuid(),
+  server_id uuid references public.servers(id) on delete cascade not null,
+  name text not null,
+  type text default 'text' check (type in ('text', 'voice')),
+  created_at timestamptz default now()
+);
+
+alter table public.channels enable row level security;
+
+create policy "Members can view channels"
+  on public.channels for select
+  to authenticated
+  using (
+    exists (
+      select 1 from public.server_members
+      where server_members.server_id = channels.server_id
+      and server_members.user_id = auth.uid()
+    )
+  );
+
+create policy "Server owners can create channels"
+  on public.channels for insert
+  to authenticated
+  with check (
+    exists (
+      select 1 from public.servers
+      where servers.id = channels.server_id
+      and servers.owner_id = auth.uid()
+    )
+  );
+
+-- Messages table
+create table public.messages (
+  id uuid primary key default gen_random_uuid(),
+  channel_id uuid references public.channels(id) on delete cascade not null,
+  user_id uuid references auth.users(id) on delete cascade not null,
+  content text not null,
+  created_at timestamptz default now()
+);
+
+alter table public.messages enable row level security;
+
+create policy "Members can view messages"
+  on public.messages for select
+  to authenticated
+  using (
+    exists (
+      select 1 from public.channels c
+      join public.server_members sm on sm.server_id = c.server_id
+      where c.id = messages.channel_id
+      and sm.user_id = auth.uid()
+    )
+  );
+
+create policy "Members can send messages"
+  on public.messages for insert
+  to authenticated
+  with check (
+    user_id = auth.uid()
+    and exists (
+      select 1 from public.channels c
+      join public.server_members sm on sm.server_id = c.server_id
+      where c.id = messages.channel_id
+      and sm.user_id = auth.uid()
+    )
+  );
+
+-- Friendships table
+create table public.friendships (
+  id uuid primary key default gen_random_uuid(),
+  requester_id uuid references auth.users(id) on delete cascade not null,
+  addressee_id uuid references auth.users(id) on delete cascade not null,
+  status text default 'pending' check (status in ('pending', 'accepted', 'rejected')),
+  created_at timestamptz default now(),
+  unique(requester_id, addressee_id)
+);
+
+alter table public.friendships enable row level security;
+
+create policy "Users can view own friendships"
+  on public.friendships for select
+  to authenticated
+  using (requester_id = auth.uid() or addressee_id = auth.uid());
+
+create policy "Users can send friend requests"
+  on public.friendships for insert
+  to authenticated
+  with check (requester_id = auth.uid());
+
+create policy "Addressees can update friend requests"
+  on public.friendships for update
+  to authenticated
+  using (addressee_id = auth.uid());
+
+create policy "Users can delete own friendships"
+  on public.friendships for delete
+  to authenticated
+  using (requester_id = auth.uid() or addressee_id = auth.uid());
+
+-- Auto-create default channels when a server is created
+create or replace function public.handle_new_server()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  insert into public.server_members (server_id, user_id, role)
+  values (new.id, new.owner_id, 'owner');
+  
+  insert into public.channels (server_id, name, type) values
+    (new.id, 'general', 'text'),
+    (new.id, 'memes', 'text'),
+    (new.id, 'General', 'voice');
+  
+  return new;
+end;
+$$;
+
+create trigger on_server_created
+  after insert on public.servers
+  for each row
+  execute function public.handle_new_server();
+
+-- Auto-create profile on signup
+create or replace function public.handle_new_user()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  insert into public.profiles (id, username, display_name)
+  values (
+    new.id,
+    coalesce(new.raw_user_meta_data->>'username', split_part(new.email, '@', 1)),
+    coalesce(new.raw_user_meta_data->>'display_name', split_part(new.email, '@', 1))
+  );
+  return new;
+end;
+$$;
+
+create trigger on_auth_user_created
+  after insert on auth.users
+  for each row
+  execute function public.handle_new_user();
